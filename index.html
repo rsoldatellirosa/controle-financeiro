@@ -270,14 +270,30 @@ function renderDashboard() {
     var tr = document.createElement('tr'); tr.className='group-row';
     tr.innerHTML='<td colspan="5">' + label + '</td>'; tb.appendChild(tr);
   }
+  // r.desc, r.pgto, r.data e r.cat vem da planilha — nunca via innerHTML,
+  // para não rodar HTML/script que alguém tenha colado numa célula.
+  function td(text, opts) {
+    var cell = document.createElement('td');
+    if (opts && opts.style) cell.style.cssText = opts.style;
+    if (opts && opts.badgeClass) {
+      var span = document.createElement('span');
+      span.className = opts.badgeClass;
+      span.textContent = text;
+      cell.appendChild(span);
+    } else {
+      cell.textContent = text;
+    }
+    return cell;
+  }
   function addR(r) {
     var cat = getCat(r.cat);
     var pc  = (r.pgto||'').toLowerCase()==='pix' ? 'pag-pix' : 'pag-cartao';
     var tr  = document.createElement('tr');
-    tr.innerHTML = '<td>' + r.desc + '</td><td>' + (r.valor>0?fmt(r.valor):'-') + '</td>' +
-      '<td><span class="' + pc + '">' + r.pgto + '</span></td>' +
-      '<td style="color:#888">' + r.data + '</td>' +
-      '<td><span class="badge ' + cat.cls + '">' + r.cat + '</span></td>';
+    tr.appendChild(td(r.desc));
+    tr.appendChild(td(r.valor > 0 ? fmt(r.valor) : '-'));
+    tr.appendChild(td(r.pgto, { badgeClass: pc }));
+    tr.appendChild(td(r.data, { style: 'color:#888' }));
+    tr.appendChild(td(r.cat, { badgeClass: 'badge ' + cat.cls }));
     tb.appendChild(tr);
   }
 
