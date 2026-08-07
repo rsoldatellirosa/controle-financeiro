@@ -219,7 +219,22 @@ function renderDashboard() {
   var fatH   = parseFloat(document.getElementById('fatHapolo').value)  || 0;
   var fatM   = parseFloat(document.getElementById('fatMutirao').value) || 0;
   var fatTot = fatH + fatM;
-  var gasto  = rows.reduce(function(s,r){ return s + r.valor; }, 0);
+
+  // A fatura do cartao (Pagamento "Fatura") e a verdade do gasto no cartao: e o
+  // valor real que o banco cobrou. Os itens de cartao lancados a mao dao so o
+  // detalhe por categoria e costumam ser incompletos; a diferenca (fatura menos
+  // itens lancados) entra como "Cartao - nao detalhado" para o total fechar com
+  // o banco sem contar o cartao duas vezes.
+  function isFatura(r){ return normKey(r.pgto).indexOf('fatura') !== -1; }
+  function isCartao(r){ return normKey(r.pgto).indexOf('cartao') !== -1; }
+  var faturaRows = rows.filter(isFatura);
+  var itemRows   = rows.filter(function(r){ return !isFatura(r); });
+  var fatCartao  = faturaRows.reduce(function(s,r){ return s + r.valor; }, 0);
+  var cartaoLanc = itemRows.reduce(function(s,r){ return isCartao(r) ? s + r.valor : s; }, 0);
+  var cartaoGap  = Math.max(0, fatCartao - cartaoLanc);   // compras no cartao nao lancadas
+  var CAT_GAP    = 'Cartao - nao detalhado';
+
+  var gasto  = itemRows.reduce(function(s,r){ return s + r.valor; }, 0) + cartaoGap;
   var sobra  = fatTot - gasto;
   var pct    = fatTot > 0 ? Math.round(gasto / fatTot * 100) : 0;
 
@@ -230,7 +245,8 @@ function renderDashboard() {
     '<div class="card"><div class="card-label">% comprometido</div><div class="card-value">' + pct + '%</div></div>';
 
   var catTotals = {};
-  rows.forEach(function(r) { if (r.valor > 0) catTotals[r.cat] = (catTotals[r.cat]||0) + r.valor; });
+  itemRows.forEach(function(r) { if (r.valor > 0) catTotals[r.cat] = (catTotals[r.cat]||0) + r.valor; });
+  if (cartaoGap > 0) catTotals[CAT_GAP] = (catTotals[CAT_GAP]||0) + cartaoGap;
   var keys   = Object.keys(catTotals).sort(function(a,b){ return catTotals[b]-catTotals[a]; });
   var vals   = keys.map(function(k){ return catTotals[k]; });
   var colors = keys.map(function(k){ return getCat(k).color; });
@@ -263,8 +279,8 @@ function renderDashboard() {
 
   var tb = document.getElementById('mainTableBody');
   tb.innerHTML = '';
-  var fixos = rows.filter(function(r){ return r.desc.toLowerCase().indexOf('fixo') !== -1; });
-  var vars  = rows.filter(function(r){ return r.desc.toLowerCase().indexOf('fixo') === -1; });
+  var fixos = itemRows.filter(function(r){ return r.desc.toLowerCase().indexOf('fixo') !== -1; });
+  var vars  = itemRows.filter(function(r){ return r.desc.toLowerCase().indexOf('fixo') === -1; });
 
   function grp(label) {
     var tr = document.createElement('tr'); tr.className='group-row';
@@ -297,17 +313,25 @@ function renderDashboard() {
     tb.appendChild(tr);
   }
 
-  if (fixos.length) { grp('Gastos fixos'); fixos.forEach(addR); }
-  if (vars.length)  { grp('Gastos variaveis'); vars.forEach(addR); }
+  if (fixos.length)      { grp('Gastos fixos'); fixos.forEach(addR); }
+  if (vars.length)       { grp('Gastos variaveis'); vars.forEach(addR); }
+  if (cartaoGap > 0)     { grp('Cartao - nao detalhado'); addR({desc:'Compras no cartao nao lancadas', valor:cartaoGap, cat:CAT_GAP, data:'', pgto:'Cartao'}); }
+  if (faturaRows.length) { grp('Fatura cartao (referencia - nao somada)'); faturaRows.forEach(addR); }
 
   var sep = document.createElement('tr'); sep.innerHTML='<td colspan="5" style="padding:6px;border:none"></td>'; tb.appendChild(sep);
-  [
+  var totalRows = [
     {l:'Faturamento Hapolo',  v:fmt(fatH),   c:'total-fat'},
     {l:'Faturamento Mutirao', v:fmt(fatM),   c:'total-fat'},
     {l:'Total faturamento',   v:fmt(fatTot), c:'total-fat-bold'},
     {l:'Total Gasto',         v:fmt(gasto),  c:'total-gasto'},
     {l:'Total sobra',         v:fmt(sobra),  c:'total-sobra'},
-  ].forEach(function(t){
+  ];
+  if (fatCartao > 0) {
+    totalRows.push({l:'Fatura cartao (banco)',    v:fmt(fatCartao),  c:'total-fat'});
+    totalRows.push({l:'Cartao lancado (itens)',   v:fmt(cartaoLanc), c:'total-fat'});
+    totalRows.push({l:'Cartao nao detalhado',     v:fmt(cartaoGap),  c:'total-fat-bold'});
+  }
+  totalRows.forEach(function(t){
     var tr=document.createElement('tr'); tr.className=t.c;
     tr.innerHTML='<td><em>'+t.l+'</em></td><td>'+t.v+'</td><td></td><td></td><td></td>';
     tb.appendChild(tr);
