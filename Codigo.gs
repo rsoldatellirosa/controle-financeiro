@@ -130,6 +130,42 @@ function testarLeitura() {
 }
 
 
+/**
+ * Correcao pontual dos meses antigos.
+ *
+ * Antes do modelo atual, a linha da fatura do Nubank ficava com Pagamento
+ * "Cartao" — entao ela era somada junto com os itens do cartao e o mes inteiro
+ * saia inflado (a soma dupla). Isto reetiqueta essas linhas como "Fatura",
+ * que e o que o dashboard e a analise esperam.
+ *
+ * So mexe em linhas cuja descricao contem "cartao nubank", e ignora as que ja
+ * estao como "Fatura" — pode rodar quantas vezes quiser sem estragar nada.
+ * Rode pelo editor (escolha a funcao e clique em Executar) e veja o log.
+ *
+ * @return {string[]} O que foi alterado, uma linha por celula.
+ */
+function corrigirTagFatura() {
+  var mudou = [];
+  SpreadsheetApp.openById(SHEET_ID).getSheets().forEach(function(sheet) {
+    var nome  = sheet.getName();
+    var parte = nome.split('_');
+    if (parte.length !== 2 || MESES.indexOf(parte[0]) === -1) return;  // so abas de mes
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+
+    var vals = sheet.getRange(2, 1, lastRow - 1, 5).getDisplayValues();
+    vals.forEach(function(r, i) {
+      if (norm_(r[0]).indexOf('cartao nubank') === -1) return;   // so a linha da fatura
+      if (norm_(r[4]).indexOf('fatura') !== -1) return;          // ja corrigida
+      sheet.getRange(i + 2, 5).setValue('Fatura');
+      mudou.push(nome + ' linha ' + (i + 2) + ': "' + r[4] + '" -> "Fatura"');
+    });
+  });
+  Logger.log(mudou.length ? mudou.join('\n') : 'Nada a corrigir — todos os meses ja estao certos.');
+  return mudou;
+}
+
+
 /* ==========================================================================
  * ANALISE MENSAL POR EMAIL
  *
