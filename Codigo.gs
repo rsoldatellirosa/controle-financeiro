@@ -166,6 +166,69 @@ function corrigirTagFatura() {
 }
 
 
+/**
+ * Correcoes pontuais de digitacao.
+ *
+ *  - setembro_2026: na linha "Olimpia - Fixo" o valor 117 acabou digitado
+ *    tambem na coluna Categoria. Isso cria uma categoria fantasma "117" nos
+ *    graficos e na analise. Vira "Bem-estar", que e a categoria dela em todos
+ *    os outros meses.
+ *  - datas com o ano errado (2006, 2025) nas abas de mes. Nao afetam conta
+ *    nenhuma — a analise nao usa a coluna Data — mas ficam erradas no
+ *    historico.
+ *
+ * Idempotente: so mexe se o erro ainda estiver la. Rode pelo editor.
+ *
+ * @return {string[]} O que foi alterado.
+ */
+function corrigirErrosPontuais() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var mudou = [];
+
+  var set = ss.getSheetByName('setembro_2026');
+  if (set && set.getLastRow() >= 2) {
+    var linhas = set.getRange(2, 1, set.getLastRow() - 1, 5).getDisplayValues();
+    linhas.forEach(function(r, i) {
+      if (norm_(r[0]).indexOf('olimpia') === -1) return;
+      if (norm_(r[2]) === 'bem-estar') return;                    // ja corrigida
+      set.getRange(i + 2, 3).setValue('Bem-estar');
+      mudou.push('setembro_2026 linha ' + (i + 2) + ' categoria: "' + r[2] + '" -> "Bem-estar"');
+    });
+  }
+
+  // Numa aba "mes_ano", toda data tem que ser daquele ano; ano diferente e
+  // erro de digitacao. Corrige so o ano: dia e mes ficam como estao, porque
+  // algumas linhas usam de proposito o vencimento caindo em outro mes.
+  ss.getSheets().forEach(function(sheet) {
+    var nome  = sheet.getName();
+    var parte = nome.split('_');
+    if (parte.length !== 2 || MESES.indexOf(parte[0]) === -1) return;   // so abas de mes
+    var anoAba = Number(parte[1]);
+    if (sheet.getLastRow() < 2) return;
+
+    var datas = sheet.getRange(2, 4, sheet.getLastRow() - 1, 1).getDisplayValues();
+    datas.forEach(function(r, i) {
+      var txt = r[0];
+      var ano = txt.match(/(\d{4})\s*$/);
+      if (!ano || Number(ano[1]) === anoAba) return;                   // vazia ou ja certa
+      var cel = sheet.getRange(i + 2, 4);
+      var raw = cel.getValue();
+      // A celula pode guardar uma data de verdade ou so texto; trata os dois.
+      if (Object.prototype.toString.call(raw) === '[object Date]') {
+        raw.setFullYear(anoAba);
+        cel.setValue(raw);
+      } else {
+        cel.setValue(txt.replace(/(\d{4})\s*$/, String(anoAba)));
+      }
+      mudou.push(nome + ' linha ' + (i + 2) + ' data: "' + txt + '" -> ' + anoAba);
+    });
+  });
+
+  Logger.log(mudou.length ? mudou.join('\n') : 'Nada a corrigir — ja esta tudo certo.');
+  return mudou;
+}
+
+
 /* ==========================================================================
  * ANALISE MENSAL POR EMAIL
  *
