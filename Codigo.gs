@@ -35,7 +35,7 @@ function onOpen() {
     .createMenu('Financeiro')
     .addItem('Atualizar resumo do mes', 'atualizarResumo')
     .addItem('Enviar analise do mes passado agora', 'enviarAnaliseMensal')
-    .addItem('Instalar envio automatico (dia 1)', 'criarGatilhoMensal')
+    .addItem('Instalar envio automatico (dia 10)', 'criarGatilhoMensal')
     .addToUi();
 }
 
@@ -238,12 +238,17 @@ function delta_(atual, ant) {
  * Envia por email a analise do mes que acabou. Chamada pelo gatilho mensal
  * (dia 1) e pelo menu "Financeiro".
  */
-function enviarAnaliseMensal() {
+function enviarAnaliseMensal(e) {
   var hoje = new Date();
   var ref  = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);   // mes fechado
   var ano  = ref.getFullYear(), mes = ref.getMonth();
 
   var atual = analisarAba_(abaDe_(ano, mes));
+
+  // Gatilho de tempo recebe um evento; chamada pelo menu, nao. Serve para o
+  // envio automatico ser cauteloso e o manual passar direto.
+  var automatico = !!(e && e.triggerUid);
+
   if (!atual) {
     MailApp.sendEmail({
       to: Session.getEffectiveUser().getEmail(),
@@ -251,6 +256,29 @@ function enviarAnaliseMensal() {
       htmlBody: '<p style="font-family:sans-serif">A aba <code>' + abaDe_(ano, mes) +
                 '</code> nao existe ou esta vazia. Nada para analisar neste mes.</p>'
     });
+    return;
+  }
+
+  // A fatura do cartao so e lancada quando o cartao vira, por volta do dia 10.
+  // Sem ela o total do mes sai subestimado, entao o envio automatico manda um
+  // lembrete em vez de uma analise errada. Pelo menu, envia mesmo assim.
+  if (automatico && atual.fatCartao === 0 && atual.cartaoLanc > 0) {
+    MailApp.sendEmail({
+      to: Session.getEffectiveUser().getEmail(),
+      subject: 'Controle Financeiro — falta a fatura de ' + nomeDe_(ano, mes),
+      htmlBody:
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;' +
+        'max-width:520px;margin:32px auto;padding:24px 28px;border:1px solid #e8e8e3;border-radius:12px">' +
+        '<div style="font-size:17px;font-weight:700;color:#1a1a1a">Falta a fatura de ' + esc_(nomeDe_(ano, mes)) + '</div>' +
+        '<p style="font-size:14px;color:#1a1a1a;line-height:1.6">A linha com Pagamento <b>Fatura</b> da aba ' +
+        '<code>' + esc_(abaDe_(ano, mes)) + '</code> esta sem valor. Sem ela o total do mes sai errado, ' +
+        'entao a analise nao foi gerada.</p>' +
+        '<p style="font-size:14px;color:#1a1a1a;line-height:1.6">Preenche o valor da fatura e depois roda ' +
+        '<b>Financeiro &gt; Enviar analise do mes passado agora</b> no menu da planilha.</p>' +
+        '<div style="font-size:12px;color:#888780;margin-top:16px;padding-top:12px;border-top:1px solid #e8e8e3">' +
+        'Ja lancados ' + fmtBRL_(atual.cartaoLanc) + ' em itens de cartao neste mes.</div></div>'
+    });
+    Logger.log('Fatura de %s ainda vazia — lembrete enviado.', nomeDe_(ano, mes));
     return;
   }
 
@@ -405,14 +433,20 @@ function montarEmailAnalise_(a, nomeMes, anteriores) {
   return h;
 }
 
-/** Instala o gatilho mensal (dia 1, entre 7h e 8h). Rode uma vez. */
+/**
+ * Instala o gatilho mensal. Roda no dia 10 a noite, e nao no dia 1, porque a
+ * fatura do cartao so e lancada quando o cartao vira, por volta do dia 10 —
+ * antes disso o total do mes sairia sem o cartao. A hora tardia da folga para
+ * o lancamento do dia acontecer antes do envio.
+ * Rode uma vez.
+ */
 function criarGatilhoMensal() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     if (t.getHandlerFunction() === 'enviarAnaliseMensal') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('enviarAnaliseMensal')
-    .timeBased().onMonthDay(1).atHour(7).create();
-  var msg = 'Pronto. A analise sera enviada todo dia 1, de manha.';
+    .timeBased().onMonthDay(10).atHour(20).create();
+  var msg = 'Pronto. A analise sera enviada todo dia 10, a noite.';
   Logger.log(msg);
   // getUi() so existe quando a funcao roda pelo menu da planilha; pelo editor, nao.
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
